@@ -181,14 +181,12 @@ class ChadoStorageTest extends ChadoTestBrowserBase {
   }
 
   /**
-   * Tests adding, getting, and removing StoragePropertyTypes.
+   * Tests CRUD related to StoragePropertyTypes used by ChadoStorage.
+   *
+   * Focus on addTypes(), getTypes(), removeTypes().
    * NOTE: we don't test validateTypes() here as that acts on StoragePropertyValues.
    *
    * @dataProvider provideTestCases
-   *
-   * @covers \Drupal\tripal_chado\Plugin\TripalStorage\ChadoStorage::addTypes
-   * @covers \Drupal\tripal_chado\Plugin\TripalStorage\ChadoStorage::getTypes
-   * @covers \Drupal\tripal_chado\Plugin\TripalStorage\ChadoStorage::removeTypes
    */
   public function testStoragePropertyTypes(array $fields, array $properties, bool $valid) {
     $propertyTypes = [];
@@ -292,5 +290,58 @@ class ChadoStorageTest extends ChadoTestBrowserBase {
     $return_value = $chado_storage->addTypes($propertyTypes);
     ob_end_clean();
     $this->assertFalse($return_value, "We should not be able to add the same types again using addTypes().");
+  }
+
+  /**
+   * Tests loading values from chado using property types/values.
+   *
+   * Focus on loadValues() and validateValues().
+   * Also public functions selectChadoRecord(), validateTypes(), validateSize().
+   */
+
+  /**
+   * Tests inserting and updating values in chado using property types/values.
+   *
+   * Focus on insertValues() and updateValues().
+   */
+
+  /**
+   * Focus on unimplemented methods.
+   * Specifically, deleteValues(), findValues().
+   *
+   * Basically just check that
+   *  - we get a warning that they are not implemented
+   *  - we get a valid return value.
+   */
+  public function testUnimplementedChadoStorageMethods() {
+
+    $storage_manager = \Drupal::service('tripal.storage');
+    $chado_storage = $storage_manager->createInstance('chado_storage');
+
+    // findValues().
+    $caught_exception = FALSE;
+    $exception_msg = '';
+    try {
+      $chado_storage->findValues('blah');
+    }
+    catch(\Exception $e) {
+      $caught_exception = TRUE;
+      $exception_msg = $e->getMessage();
+    }
+    $this->assertTrue($caught_exception, "Find values is not implemented yet so we should have been notified.");
+    $this->assertStringContainsString('not yet implemented', $exception_msg, "The exception message should indicate that this method is 'not yet implemented'.");
+
+    // deleteValues().
+    $caught_exception = FALSE;
+    $exception_msg = '';
+    try {
+      $chado_storage->deleteValues([]);
+    }
+    catch(\Exception $e) {
+      $caught_exception = TRUE;
+      $exception_msg = $e->getMessage();
+    }
+    $this->assertTrue($caught_exception, "Delete values is not implemented yet so we should have been notified.");
+    $this->assertStringContainsString('not yet implemented', $exception_msg, "The exception message should indicate that this method is 'not yet implemented'.");
   }
 }

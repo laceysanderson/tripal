@@ -510,15 +510,14 @@ class ChadoStorage extends PluginBase implements TripalStorageInterface {
    * @{inheritdoc}
    */
   public function deleteValues($values) : bool {
-
-    return FALSE;
+    throw new \Exception($this->t('The ChadoStorage::deleteValues() method is not yet implemented.'));
   }
 
   /**
    * @{inheritdoc}
    */
   public function findValues($match) {
-
+    throw new \Exception($this->t('The ChadoStorage::findValues() method is not yet implemented.'));
   }
 
 
