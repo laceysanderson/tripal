@@ -193,41 +193,12 @@ class ChadoStorageTest extends ChadoTestBrowserBase {
     $num_properties = 0;
 
     // Can we create the properties?
-    foreach ($properties as $propdeets) {
-      switch ($propdeets['type']) {
-        case 'varchar':
-          $propertyTypes[ $propdeets['name'] ] = new ChadoVarCharStoragePropertyType(
-            $this->content_type,
-            $propdeets['field'],
-            $propdeets['name'],
-            $propdeets['term'],
-            $propdeets['size'],
-            [
-              'action' => $propdeets['action'],
-              'drupal_store' => $propdeets['drupal_store'],
-              'chado_column' => $propdeets['chado_column'],
-              'chado_table' => $propdeets['chado_table'],
-            ]
-          );
-          break;
-        case 'int':
-          $propertyTypes[ $propdeets['name'] ] = new ChadoIntStoragePropertyType(
-            $this->content_type,
-            $propdeets['field'],
-            $propdeets['name'],
-            $propdeets['term'],
-            [
-              'action' => $propdeets['action'],
-              'drupal_store' => $propdeets['drupal_store'],
-              'chado_column' => $propdeets['chado_column'],
-              'chado_table' => $propdeets['chado_table'],
-            ]
-          );
-          break;
-      }
+    foreach ($properties as $details) {
+      list('class' => $className, 'args' => $args) = $this->helperPrepStoragePropertyTypeCreate($details);
+      $propertyTypes[ $details['name'] ] = new $className(...$args);
 
-      $context = 'field: ' . $propdeets['field'] . '; property: ' . $propdeets['name'];
-      $this->assertIsObject($propertyTypes[ $propdeets['name'] ],
+      $context = 'field: ' . $details['field'] . '; property: ' . $details['name'];
+      $this->assertIsObject($propertyTypes[ $details['name'] ],
         "Unable to create the Storage Property Type object ($context).");
 
       // Keep track of how many we have created for testing getTypes() later.
@@ -297,7 +268,98 @@ class ChadoStorageTest extends ChadoTestBrowserBase {
    *
    * Focus on loadValues() and validateValues().
    * Also public functions selectChadoRecord(), validateTypes(), validateSize().
+   *
+   * @dataProvider provideTestCases
    */
+  public function testLoadValidateValues(array $fields, array $properties, array $load_testData, bool $valid) {
+
+    // Get plugin managers we need for our testing.
+    $storage_manager = \Drupal::service('tripal.storage');
+    $chado_storage = $storage_manager->createInstance('chado_storage');
+
+    // Insert data required for this test.
+    $inserted = [];
+    $this->testSchemaName;
+    $connection = $this->getTestSchema();
+    foreach ($load_testData as $record_details) {
+      $result = $connection->insert('1:' . $record_details['table'])
+        ->fields($record_details['values'])
+        ->execute();
+
+      $key = $record_details['table'] . '_id';
+      $inserted[ $record_details['table'] ] = $record_details['values'];
+      $inserted[ $record_details['table'] ][ $key ] = $result;
+    }
+
+    // For each field...
+    $values = [];
+    $num_properties = 0;
+    $expected_values = [];
+    foreach($fields as $field) {
+
+      // We reset these for each field.
+      $propertyTypes = [];
+      $propertyValues = [];
+
+      // We also need FieldConfig classes for loading values.
+      // We're going to create a TripalField and see if that works.
+      $fieldconfig = $this->helperGetFieldMock($field);
+
+      // Testing the Property Type + Value class creation
+      foreach($properties as $key => $details) {
+        $context = "Field: " . $field['name'] . "; Column: " . $details['chado_column'] . "; Key: " . $key;
+
+        // Create the property Type.
+        list('class' => $className, 'args' => $args) = $this->helperPrepStoragePropertyTypeCreate($details);
+        $new_prop_type = new $className(...$args);
+        $this->assertIsObject($new_prop_type, "Unable to create the property TYPE ($context).");
+        // Create the property Value.
+        $new_prop_value = new StoragePropertyValue(
+          $this->content_type,
+          $details['field'],
+          $details['chado_column'],
+          $details['term'],
+          $this->content_entity_id
+        );
+        $this->assertIsObject($new_prop_value, "Unable to create the property VALUE ($context).");
+
+        // If the current property is a store_id then we need to set the id
+        // based on the inserted values.
+        if ($details['action'] === 'store_id') {
+          $value4prop = $inserted[ $details['chado_table'] ][ $details['chado_column'] ];
+          $new_prop_value->setValue($value4prop);
+        }
+        // Now set the expected values for this.
+        $expected_values[ $details['chado_table'] ][ $details['chado_column'] ] = $inserted[ $details['chado_table'] ][ $details['chado_column'] ];
+
+        // Then we add it to the list for further testing later.
+        $propertyTypes[$key] = $new_prop_type;
+        $propertyValues[$key] = $new_prop_value;
+
+        // We also want to add to the values array here which will be used for loading.
+        $values[ $field['name'] ][0][$key] = [
+          'value' => $new_prop_value,
+          'type' => $new_prop_type,
+          'definition' => $fieldconfig,
+        ];
+      } // End of foreach property type.
+    } // End of foreach field.
+
+    // Now we add the types and then load the values.
+    $chado_storage->addTypes($propertyTypes);
+    $success = $chado_storage->loadValues($values);
+    $this->assertTrue($success, "Loading values after adding " . $field['name'] . " was not success (i.e. did not return TRUE).");
+
+    // Then we test that the values are now in the types that we passed in.
+    /*
+    foreach ($expected_values as $deets) {
+      list($Dfield, $Ddelta, $Dproperty, $Dvalue) = $deets;
+      $context = "Field: " . $Dfield . "; Ddelta: " . $Ddelta . "; Property: " . $Dproperty . "; Expected Value: " . $Dvalue;
+      $Gvalue = $values[$Dfield][$Ddelta][$Dproperty]['value']->getValue();
+      $this->assertEquals($Dvalue, $Gvalue, "Could not load the value we expected but loaded $Gvalue instead ($context)");
+    }
+    */
+  }
 
   /**
    * Tests inserting and updating values in chado using property types/values.
@@ -343,5 +405,78 @@ class ChadoStorageTest extends ChadoTestBrowserBase {
     }
     $this->assertTrue($caught_exception, "Delete values is not implemented yet so we should have been notified.");
     $this->assertStringContainsString('not yet implemented', $exception_msg, "The exception message should indicate that this method is 'not yet implemented'.");
+  }
+
+  /**
+   * Prepare property type details returned by the dataProvider for object creation.
+   * This just makes the tests a bit more readable since this is repeated often.
+   *
+   * @param array $details
+   *   A single element from the properties array provided by the data provider.
+   * @return array
+   *   An array describing how to create this property.
+   *    - class: the class of the object to create.
+   *    - args: an ordered array of parameters needed to create the object.
+   */
+  public function helperPrepStoragePropertyTypeCreate($details) {
+    $return = ['class' => NULL, 'args' => []];
+
+    switch ($details['type']) {
+      case 'varchar':
+        $return['class'] = '\Drupal\tripal_chado\TripalStorage\ChadoVarCharStoragePropertyType';
+        $return['args'] = [
+          $this->content_type,
+          $details['field'],
+          $details['name'],
+          $details['term'],
+          $details['size'],
+          [
+            'action' => $details['action'],
+            'drupal_store' => $details['drupal_store'],
+            'chado_column' => $details['chado_column'],
+            'chado_table' => $details['chado_table'],
+          ]
+        ];
+        break;
+      case 'int':
+        $return['class'] = '\Drupal\tripal_chado\TripalStorage\ChadoIntStoragePropertyType';
+        $return['args'] = [
+          $this->content_type,
+          $details['field'],
+          $details['name'],
+          $details['term'],
+          [
+            'action' => $details['action'],
+            'drupal_store' => $details['drupal_store'],
+            'chado_column' => $details['chado_column'],
+            'chado_table' => $details['chado_table'],
+          ]
+        ];
+        break;
+    }
+    return $return;
+  }
+
+  /**
+   * Returns a mocked version of a field config to be used when working with values.
+   *
+   * @param array $field
+   *   A single element from the fields array provided by the data provider.
+   * @return FieldConfigMock
+   *   A mock field configuration for the described field.
+   */
+  public function helperGetFieldMock($field) {
+
+    $fieldconfig = new FieldConfigMock(['field_name' => $field['name'], 'entity_type' => $this->content_type]);
+
+    $storage_settings = [
+      'storage_plugin_id' => 'chado_storage',
+      'storage_plugin_settings' => [
+        'base_table' => $field['base_table'],
+      ],
+    ];
+    $fieldconfig->setMock(['label' => $field['label'], 'settings' => $storage_settings]);
+
+    return $fieldconfig;
   }
 }
